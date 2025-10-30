@@ -5,7 +5,7 @@ module.exports = {
   apps: [{
     name: 'whatsappbot',
     script: './server.js',
-    cwd: '/www/bot.capitalmars.com'
+    cwd: '/www/bot.capitalmars.com',
     
     // Режим работы
     instances: 1,
