@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Bot Управление</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            color: #555;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        input::placeholder {
+            color: #aaa;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            display: block;
+        }
+
+        .hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        .preview {
+            font-size: 12px;
+            color: #667eea;
+            margin-top: 5px;
+            font-weight: 500;
+            display: none;
+        }
+
+        .preview.show {
+            display: block;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 50px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🤖</div>
+        <h1>WhatsApp Bot</h1>
+
+        <form id="botForm">
+            <div class="form-group">
+                <label for="chatId">Номер телефона</label>
+                <input 
+                    type="tel" 
+                    id="chatId" 
+                    name="chatId" 
+                    placeholder="79991234567"
+                    pattern="[0-9]+"
+                    required
+                />
+                <div id="phonePreview" class="preview">WhatsApp ID: <span id="previewText"></span></div>
+            </div>
+
+            <div class="form-group">
+                <label for="objectId">ID объекта (object_id)</label>
+                <input 
+                    type="number" 
+                    id="objectId" 
+                    name="objectId" 
+                    value="508437"
+                    required
+                />
+            </div>
+
+            <button type="submit" class="btn" id="startBtn">
+                🚀 Запустить бота
+            </button>
+        </form>
+
+        <div id="status" class="status"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('botForm');
+        const statusDiv = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const chatIdInput = document.getElementById('chatId');
+        const phonePreview = document.getElementById('phonePreview');
+        const previewText = document.getElementById('previewText');
+
+        // Обновление предпросмотра при вводе номера
+        chatIdInput.addEventListener('input', (e) => {
+            const phoneNumber = e.target.value.trim();
+            
+            if (phoneNumber && /^\d+$/.test(phoneNumber)) {
+                previewText.textContent = phoneNumber + '@c.us';
+                phonePreview.classList.add('show');
+            } else {
+                phonePreview.classList.remove('show');
+            }
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const phoneNumber = document.getElementById('chatId').value.trim();
+            const objectId = document.getElementById('objectId').value;
+
+            // Валидация
+            if (!phoneNumber || !objectId) {
+                showStatus('Пожалуйста, заполните все поля', 'error');
+                return;
+            }
+
+            // Проверка, что номер состоит только из цифр
+            if (!/^\d+$/.test(phoneNumber)) {
+                showStatus('Номер телефона должен содержать только цифры', 'error');
+                return;
+            }
+
+            // Автоматически добавляем @c.us к номеру
+            const chatId = phoneNumber + '@c.us';
+
+            // Отключаем кнопку
+            startBtn.disabled = true;
+            startBtn.textContent = '⏳ Запуск...';
+
+            try {
+                const response = await fetch('/api/start-bot', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        chatId: chatId,
+                        objectId: parseInt(objectId)
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showStatus(`✅ Бот запущен для номера ${chatId}`, 'success');
+                } else {
+                    showStatus('❌ ' + (data.error || 'Ошибка запуска бота'), 'error');
+                }
+            } catch (error) {
+                showStatus('❌ Ошибка соединения с сервером: ' + error.message, 'error');
+            } finally {
+                startBtn.disabled = false;
+                startBtn.textContent = '🚀 Запустить бота';
+            }
+        });
+
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = 'status ' + type;
+            
+            // Автоматически скрываем через 5 секунд для success
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+    </script>
+</body>
+</html>
+
