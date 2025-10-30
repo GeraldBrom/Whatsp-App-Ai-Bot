@@ -52,6 +52,8 @@ export async function startBot(chatId, objectId) {
     const MESSAGE_TYPES = {
         INITIAL_QUESTION: 'initial_question',
         PRICE_CONFIRMATION: 'price_confirmation',
+        PRICE_UPDATE: 'price_update',
+        COMMISSION_INFO: 'commission_info',
         COMPLETED: 'completed'
     };
 
@@ -94,7 +96,7 @@ export async function startBot(chatId, objectId) {
         }
         else
         {
-            await sendMessageWithDelay(targetChatId, `Я — ИИ (искусственный интеллект) компании Capital Mars. Мы уже ${data.objectCount} раз сдавали вашу квартиру на ${data.objectInfo[0].address}. ${cleanedName}, вы ее снова сдаете — верно? Если да, можем подключиться к сдаче вашей квартиры?`, 2000);
+            await sendMessageWithDelay(targetChatId, `Я — ИИ (искусственный интеллект) компании Capital Mars. Мы уже ${data.objectCount} сдавали вашу квартиру на ${data.objectInfo[0].address}. ${cleanedName}, вы ее снова сдаете — верно? Если да, можем подключиться к сдаче вашей квартиры?`, 2000);
         }
         
         dialogState.set(targetChatId, MESSAGE_TYPES.INITIAL_QUESTION);
@@ -130,12 +132,46 @@ export async function startBot(chatId, objectId) {
                 targetChatId,
                 `На всякий случай проговариваю, что наша комиссия по факту заселения жильцов оплачиваемая вами ${data.objectInfo[0].commission_client}% (как и при прошлом сотрудничестве). Тогда мы запускаем в рекламу, как будут первые звонки сразу свяжемся с вами.`
             );
+            dialogState.set(targetChatId, MESSAGE_TYPES.COMMISSION_INFO);
+            console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: COMMISSION_INFO`);
+            return;
+        }
+        
+        await sendMessageWithDelay(targetChatId, 'Понял вас. Подскажите, пожалуйста, какая цена актуальна на данный момент?');
+        dialogState.set(targetChatId, MESSAGE_TYPES.PRICE_UPDATE);
+        console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: PRICE_UPDATE`);
+    }
+
+    // Обработчик получения новой цены от клиента
+    async function handlePriceUpdateResponse(targetChatId, messageText) {
+        console.log(`[${new Date().toLocaleTimeString()}] 🔄 handlePriceUpdateResponse: получена новая цена от клиента`);
+        
+        await sendMessageWithDelay(
+            targetChatId,
+            `Понял вас, цена ${messageText}. На всякий случай проговариваю, что наша комиссия по факту заселения жильцов оплачиваемая вами ${data.objectInfo[0].commission_client}% (как и при прошлом сотрудничестве). Тогда мы запускаем в рекламу, как будут первые звонки сразу свяжемся с вами.`
+        );
+        dialogState.set(targetChatId, MESSAGE_TYPES.COMMISSION_INFO);
+        console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: COMMISSION_INFO`);
+    }
+
+    // Обработчик ответа на информацию о комиссии
+    async function handleCommissionInfoResponse(targetChatId, isPositive) {
+        console.log(`[${new Date().toLocaleTimeString()}] 🔄 handleCommissionInfoResponse: isPositive=${isPositive}`);
+        
+        if (isPositive) {
+            await sendMessageWithDelay(
+                targetChatId,
+                'Отлично! Благодарим за доверие. Мы свяжемся с вами, как только появятся первые заинтересованные клиенты. Хорошего дня!'
+            );
             dialogState.set(targetChatId, MESSAGE_TYPES.COMPLETED);
             console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: COMPLETED (успешное завершение)`);
             return;
         }
         
-        await sendMessageWithDelay(targetChatId, 'Понял вас. Подскажите, пожалуйста, какая цена актуальна на данный момент?');
+        // Если клиент не согласен с комиссией, завершаем диалог
+        await sendMessageWithDelay(targetChatId, 'Понял вас. Спасибо за ваше время, если что-то изменится — будем рады сотрудничеству.');
+        dialogState.set(targetChatId, MESSAGE_TYPES.COMPLETED);
+        console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: COMPLETED (отказ по комиссии)`);
     }
 
     // Обработчик неизвестного состояния диалога
@@ -219,13 +255,21 @@ export async function startBot(chatId, objectId) {
     // Маршрутизатор обработки диалога
     const dialogHandlers = {
         [MESSAGE_TYPES.INITIAL_QUESTION]: handleInitialQuestionResponse,
-        [MESSAGE_TYPES.PRICE_CONFIRMATION]: handlePriceConfirmationResponse
+        [MESSAGE_TYPES.PRICE_CONFIRMATION]: handlePriceConfirmationResponse,
+        [MESSAGE_TYPES.COMMISSION_INFO]: handleCommissionInfoResponse
     };
 
     // Маршрутизатор обработки диалога
-    async function routeDialogResponse(targetChatId, isPositive) {
+    async function routeDialogResponse(targetChatId, isPositive, messageText = null) {
         const messageType = dialogState.get(targetChatId);
         console.log(`[${new Date().toLocaleTimeString()}] 🔀 routeDialogResponse: текущее состояние=${messageType}, isPositive=${isPositive}`);
+        
+        // Специальная обработка для PRICE_UPDATE - передаем текст сообщения
+        if (messageType === MESSAGE_TYPES.PRICE_UPDATE) {
+            await handlePriceUpdateResponse(targetChatId, messageText);
+            return;
+        }
+        
         const handler = dialogHandlers[messageType] || handleUnknownStateResponse;
         await handler(targetChatId, isPositive);
     }
@@ -290,7 +334,7 @@ export async function startBot(chatId, objectId) {
             }
             
             console.log(`[${new Date().toLocaleTimeString()}] Анализ ответа: ${isPositive ? 'положительный' : 'отрицательный'}`);
-            await routeDialogResponse(msgChatId, isPositive);
+            await routeDialogResponse(msgChatId, isPositive, responseText);
         } catch (error) {
             console.error(`[${new Date().toLocaleTimeString()}] Ошибка при обработке сообщения:`, error);
         }
