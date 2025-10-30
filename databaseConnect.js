@@ -4,6 +4,7 @@ import mysql from 'mysql2/promise';
 async function databaseConnect(objectId = 508437) {
     try {
         const objectNumbers = {
+            0: "ноль",
             1: "один",
             2: "два",
             3: "три",
