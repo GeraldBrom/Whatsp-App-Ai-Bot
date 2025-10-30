@@ -29,6 +29,13 @@ export async function startBot(chatId, objectId) {
         idInstance: process.env.ID_INSTANCE,
         apiTokenInstance: process.env.API_TOKEN_INSTANCE
     });
+    
+    // URL для получения последних входящих сообщений
+    // Используем API_URL из .env или определяем автоматически на основе ID_INSTANCE
+    const apiRegion = process.env.API_URL || `https://${process.env.ID_INSTANCE.substring(0, 4)}.api.green-api.com`;
+    const apiUrl = `${apiRegion}/waInstance${process.env.ID_INSTANCE}/lastIncomingMessages/${process.env.API_TOKEN_INSTANCE}`;
+    
+    console.log(`[${new Date().toLocaleTimeString()}] 🌐 API URL: ${apiUrl.replace(process.env.API_TOKEN_INSTANCE, '***TOKEN***')}`);
 
     // Инициализация OpenAI клиента для форматирования имен
     const openaiClient = new OpenAI(getOpenAIConfig(process.env.OPENAI_API_KEY));
@@ -111,7 +118,7 @@ export async function startBot(chatId, objectId) {
         if (isPositive) {
             await sendMessageWithDelay(
                 targetChatId,
-                `Хорошо, спасибо за доверие. Пару моментов для актуализации информации. Стоимость квартиры ${data.objectInfo[0].price} руб (с коммуналкой, но счетчики отдельно), верно?`
+                `Хорошо, спасибо за доверие. Пару моментов для актуализации информации. Стоимость квартиры ${data.formattedPrice} руб (с коммуналкой, но счетчики отдельно), верно?`
             );
             dialogState.set(targetChatId, MESSAGE_TYPES.PRICE_CONFIRMATION);
             console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: PRICE_CONFIRMATION`);
@@ -180,29 +187,25 @@ export async function startBot(chatId, objectId) {
         // Не делаем ничего, чтобы не повторять вопросы после завершения диалога
     }
 
-    // Проверка типа уведомления
-    function isIncomingMessage(notification) {
-        return notification.body.typeWebhook === 'incomingMessageReceived';
+    // Проверка типа сообщения (формат lastIncomingMessages)
+    function isIncomingMessage(message) {
+        return message.type === 'incoming';
     }
 
     // Проверка, что сообщение не от бота
-    function isOutgoingMessage(messageData) {
-        const typeMessage = messageData.typeMessage;
-        return typeMessage === 'outgoing' || messageData?.typeMessage === 'outgoingAPIMessage';
+    function isOutgoingMessage(message) {
+        return message.type === 'outgoing' || message.typeMessage === 'outgoingAPIMessage';
     }
 
-    // Извлечение текста сообщения
-    function extractMessageText(messageData) {
-        return messageData.textMessageData?.textMessage || 
-               messageData.extendedTextMessageData?.text || 
-               null;
+    // Извлечение текста сообщения (формат lastIncomingMessages)
+    function extractMessageText(message) {
+        // Простая структура - текст прямо в поле textMessage
+        return message.textMessage || null;
     }
 
-    // Извлечение chatId из уведомления
-    function extractChatId(notification) {
-        return notification.body.senderData?.sender || 
-               notification.body.senderData?.chatId || 
-               (notification.body.senderData?.senderName ? `${notification.body.senderData.senderName}@c.us` : null);
+    // Извлечение chatId из сообщения (формат lastIncomingMessages)
+    function extractChatId(message) {
+        return message.chatId || null;
     }
 
     // Проверка, что отправитель - не сам бот
@@ -211,27 +214,30 @@ export async function startBot(chatId, objectId) {
         return msgChatId === botChatId || msgChatId.includes(process.env.ID_INSTANCE);
     }
 
-    // Валидация входящего сообщения
-    function validateMessage(notification) {
-        if (!isIncomingMessage(notification)) {
-            console.log(`[${new Date().toLocaleTimeString()}] 🔍 Не входящее сообщение (typeWebhook: ${notification.body.typeWebhook})`);
+    // Валидация входящего сообщения (формат lastIncomingMessages)
+    function validateMessage(message) {
+        if (!isIncomingMessage(message)) {
+            console.log(`[${new Date().toLocaleTimeString()}] 🔍 Не входящее сообщение (type: ${message.type})`);
             return { valid: false };
         }
-
-        const messageData = notification.body.messageData;
         
-        if (isOutgoingMessage(messageData)) {
+        // Детальное логирование для отладки
+        console.log(`[${new Date().toLocaleTimeString()}] 📋 Тип сообщения: ${message.typeMessage}`);
+        console.log(`[${new Date().toLocaleTimeString()}] 📋 ChatId: ${message.chatId}`);
+        console.log(`[${new Date().toLocaleTimeString()}] 📋 Текст: ${message.textMessage}`);
+        
+        if (isOutgoingMessage(message)) {
             console.log(`[${new Date().toLocaleTimeString()}] ⬅️ Пропуск исходящего сообщения от бота`);
             return { valid: false };
         }
 
-        const responseText = extractMessageText(messageData);
+        const responseText = extractMessageText(message);
         if (!responseText) {
             console.log(`[${new Date().toLocaleTimeString()}] 📎 Получено сообщение без текста (возможно, медиа)`);
             return { valid: false };
         }
 
-        const msgChatId = extractChatId(notification);
+        const msgChatId = extractChatId(message);
         if (!msgChatId) {
             console.error(`[${new Date().toLocaleTimeString()}] ❌ Не удалось определить chatId`);
             return { valid: false };
@@ -275,9 +281,9 @@ export async function startBot(chatId, objectId) {
     }
 
     // Функция обработки входящего сообщения
-    async function handleIncomingMessage(notification) {
+    async function handleIncomingMessage(message) {
         try {
-            const validation = validateMessage(notification);
+            const validation = validateMessage(message);
             if (!validation.valid) return;
 
             const { chatId: msgChatId, responseText } = validation;
@@ -340,24 +346,8 @@ export async function startBot(chatId, objectId) {
         }
     }
 
-    // Функция очистки старых уведомлений
-    async function clearOldNotifications() {
-        try {
-            // Удаляем все старые уведомления (максимум 100 за раз)
-            for (let i = 0; i < 100; i++) {
-                const notification = await client.receiveNotification(1);
-                if (!notification) {
-                    break;
-                }
-                await client.deleteNotification(notification.receiptId);
-            }
-        } catch (error) {
-            console.error(`[${new Date().toLocaleTimeString()}] Ошибка при очистке уведомлений:`, error);
-        }
-    }
-
-    // Очищаем старые уведомления перед запуском
-    await clearOldNotifications();
+    // Хранилище обработанных messageId для предотвращения дублирования
+    const processedMessageIds = new Set();
 
     // Инициализируем диалог с указанным chatId
     await initializeDialog(chatId);
@@ -365,19 +355,53 @@ export async function startBot(chatId, objectId) {
     isRunning = true;
     botInstance = { client, dialogState, initializedChats };
 
-    // Основной цикл обработки сообщений
+    // Основной цикл обработки сообщений через lastIncomingMessages
     while (isRunning) {
         try {
-            const notification = await client.receiveNotification(30);
+            // Получаем последние входящие сообщения за последние 60 секунд
+            const response = await fetch(`${apiUrl}?minutes=1`);
             
-            if (notification) {
-                console.log(`[${new Date().toLocaleTimeString()}] 📬 Получено уведомление типа: ${notification.body.typeWebhook}`);
-                await handleIncomingMessage(notification);
-                await client.deleteNotification(notification.receiptId);
+            if (!response.ok) {
+                console.error(`[${new Date().toLocaleTimeString()}] ❌ Ошибка API: ${response.status}`);
+                await delay(5000);
+                continue;
+            }
+            
+            const messages = await response.json();
+            
+            if (messages && Array.isArray(messages) && messages.length > 0) {
+                console.log(`[${new Date().toLocaleTimeString()}] 📬 Получено ${messages.length} сообщений`);
+                
+                // Обрабатываем каждое сообщение
+                for (const message of messages) {
+                    // Проверяем, не обрабатывали ли мы уже это сообщение
+                    if (processedMessageIds.has(message.idMessage)) {
+                        console.log(`[${new Date().toLocaleTimeString()}] ⏭️ Пропуск уже обработанного сообщения ${message.idMessage}`);
+                        continue;
+                    }
+                    
+                    console.log(`[${new Date().toLocaleTimeString()}] 📋 СТРУКТУРА СООБЩЕНИЯ:`, JSON.stringify(message, null, 2));
+                    
+                    // Обрабатываем сообщение
+                    await handleIncomingMessage(message);
+                    
+                    // Помечаем как обработанное
+                    processedMessageIds.add(message.idMessage);
+                    
+                    // Удаляем старые ID (храним последние 100)
+                    if (processedMessageIds.size > 100) {
+                        const firstId = processedMessageIds.values().next().value;
+                        processedMessageIds.delete(firstId);
+                    }
+                }
             } else {
                 const currentState = dialogState.get(chatId) || 'не инициализирован';
-                console.log(`[${new Date().toLocaleTimeString()}] ⏳ Нет новых уведомлений (текущее состояние: ${currentState})`);
+                console.log(`[${new Date().toLocaleTimeString()}] ⏳ Нет новых сообщений (текущее состояние: ${currentState})`);
             }
+            
+            // Пауза между запросами (5 секунд)
+            await delay(5000);
+            
         } catch (error) {
             console.error(`[${new Date().toLocaleTimeString()}] ❌ Ошибка в основном цикле:`, error);
             await delay(5000);

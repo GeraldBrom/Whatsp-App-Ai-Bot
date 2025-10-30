@@ -63,6 +63,11 @@ async function databaseConnect(objectId = 508437) {
         const formattedDate = `в ${monthsArray[month]} ${year} году`;
         console.log(formattedDate);
 
+        // Форматируем цену с разделителем тысяч: 95000 → 95,000
+        const price = objectInfoRows[0].price;
+        const formattedPrice = price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        console.log(`Цена: ${formattedPrice}`);
+
 
         const combineData = {
             objectInfo: objectInfoRows,
@@ -70,6 +75,7 @@ async function databaseConnect(objectId = 508437) {
             objectCount: countNumber,
             objectAdd: objectAdd,
             formattedAddDate: formattedDate,
+            formattedPrice: formattedPrice,
         }
 
         console.log('Combined Data:', combineData);
