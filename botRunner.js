@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { GreenApiClient } from '@green-api/whatsapp-api-client-js-v2';
+import OpenAI from 'openai';
+import { getOpenAIConfig } from './proxyConfig.js';
 import databaseConnect from './databaseConnect.js';
 import { cleanOwnerName } from './formatterName.js';
 import { analyzeResponse } from './responseAnalyzer.js';
@@ -28,25 +30,46 @@ export async function startBot(chatId, objectId) {
         apiTokenInstance: process.env.API_TOKEN_INSTANCE
     });
 
+    // Инициализация OpenAI клиента для форматирования имен
+    const openaiClient = new OpenAI(getOpenAIConfig(process.env.OPENAI_API_KEY));
+
     // Получение данных из базы данных
     const data = await databaseConnect(objectId);
+    
+    // Логирование сырых данных владельца
+    console.log(`[${new Date().toLocaleTimeString()}] 🔍 Сырое имя из БД: "${data.ownerInfo[0]?.value}"`);
 
     // Инициализация состояния диалога
     const dialogState = new Map();
     // Инициализация списка инициализированных чатов
     const initializedChats = new Set();
+    // Инициализация списка обработанных сообщений (для предотвращения дублирования)
+    const processedMessages = new Set();
+    // Последнее отправленное сообщение для каждого чата
+    const lastSentMessage = new Map();
 
     // Инициализация типов сообщений
     const MESSAGE_TYPES = {
         INITIAL_QUESTION: 'initial_question',
-        PRICE_CONFIRMATION: 'price_confirmation'
+        PRICE_CONFIRMATION: 'price_confirmation',
+        COMPLETED: 'completed'
     };
 
     // Функция отправки сообщения с задержкой
     async function sendMessageWithDelay(targetChatId, message, delayMs = 1500) {
+        // Проверяем, не отправляли ли мы уже это сообщение недавно
+        const lastMessage = lastSentMessage.get(targetChatId);
+        if (lastMessage && lastMessage.text === message && (Date.now() - lastMessage.timestamp) < 10000) {
+            console.log(`[${new Date().toLocaleTimeString()}] ⚠️ Попытка отправить дубликат сообщения, пропускаем`);
+            return;
+        }
+        
         await delay(delayMs);
         await client.sendMessage({ chatId: targetChatId, message });
-        console.log(`[${new Date().toLocaleTimeString()}] Отправлено сообщение в ${targetChatId}: ${message.substring(0, 50)}...`);
+        console.log(`[${new Date().toLocaleTimeString()}] ✅ Отправлено сообщение в ${targetChatId}: ${message.substring(0, 50)}...`);
+        
+        // Сохраняем последнее отправленное сообщение
+        lastSentMessage.set(targetChatId, { text: message, timestamp: Date.now() });
     }
 
     // Функция инициализации диалога с клиентом
@@ -58,38 +81,49 @@ export async function startBot(chatId, objectId) {
         
         console.log(`[${new Date().toLocaleTimeString()}] Инициализация диалога с ${targetChatId}`);
         
-        await sendMessageWithDelay(targetChatId, `${await cleanOwnerName(data.ownerInfo[0].value)}, добрый день!`, 0);
-        await sendMessageWithDelay(targetChatId, `Я — ИИ (искусственный интеллект) компании Capital Mars. Мы уже дважды сдавали вашу квартиру на ${data.objectInfo[0].address}. Видим, что она снова сдается — верно? Если да, можем подключиться к сдаче вашей квартиры?`, 2000);
+        const rawName = data.ownerInfo[0].value;
+        console.log(`[${new Date().toLocaleTimeString()}] 📋 До cleanOwnerName: "${rawName}"`);
+        const cleanedName = await cleanOwnerName(rawName, openaiClient);
+        console.log(`[${new Date().toLocaleTimeString()}] ✨ После cleanOwnerName: "${cleanedName}"`);
+        
+        await sendMessageWithDelay(targetChatId, `${cleanedName}, добрый день!`, 0);
+        await sendMessageWithDelay(targetChatId, `Я — ИИ (искусственный интеллект) компании Capital Mars. Мы уже дважды сдавали вашу квартиру на ${data.objectInfo[0].address}. ${cleanedName}, что она снова сдается — верно? Если да, можем подключиться к сдаче вашей квартиры?`, 2000);
         
         dialogState.set(targetChatId, MESSAGE_TYPES.INITIAL_QUESTION);
+        console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: INITIAL_QUESTION`);
         initializedChats.add(targetChatId);
     }
 
     // Обработчик ответа на начальный вопрос
     async function handleInitialQuestionResponse(targetChatId, isPositive) {
+        console.log(`[${new Date().toLocaleTimeString()}] 🔄 handleInitialQuestionResponse: isPositive=${isPositive}`);
+        
         if (isPositive) {
             await sendMessageWithDelay(
                 targetChatId,
                 `Хорошо, спасибо за доверие. Пару моментов для актуализации информации. Стоимость квартиры ${data.objectInfo[0].price} руб (с коммуналкой, но счетчики отдельно), верно?`
             );
             dialogState.set(targetChatId, MESSAGE_TYPES.PRICE_CONFIRMATION);
+            console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: PRICE_CONFIRMATION`);
             return;
         }
         
         await sendMessageWithDelay(targetChatId, 'Я вас понял, извините за беспокойство.');
-        dialogState.delete(targetChatId);
-        console.log(`[${new Date().toLocaleTimeString()}] Диалог с ${targetChatId} завершен (отказ на начальном этапе)`);
+        dialogState.set(targetChatId, MESSAGE_TYPES.COMPLETED);
+        console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: COMPLETED (отказ на начальном этапе)`);
     }
 
     // Обработчик ответа на подтверждение цены
     async function handlePriceConfirmationResponse(targetChatId, isPositive) {
+        console.log(`[${new Date().toLocaleTimeString()}] 🔄 handlePriceConfirmationResponse: isPositive=${isPositive}`);
+        
         if (isPositive) {
             await sendMessageWithDelay(
                 targetChatId,
                 `На всякий случай проговариваю, что наша комиссия по факту заселения жильцов оплачиваемая вами ${data.objectInfo[0].commission_client}% (как и при прошлом сотрудничестве). Тогда мы запускаем в рекламу, как будут первые звонки сразу свяжемся с вами.`
             );
-            dialogState.delete(targetChatId);
-            console.log(`[${new Date().toLocaleTimeString()}] Диалог с ${targetChatId} успешно завершен`);
+            dialogState.set(targetChatId, MESSAGE_TYPES.COMPLETED);
+            console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: COMPLETED (успешное завершение)`);
             return;
         }
         
@@ -98,18 +132,8 @@ export async function startBot(chatId, objectId) {
 
     // Обработчик неизвестного состояния диалога
     async function handleUnknownStateResponse(targetChatId, isPositive) {
-        console.log(`[${new Date().toLocaleTimeString()}] Неизвестное состояние для ${targetChatId}, инициализируем диалог`);
-        
-        if (isPositive) {
-            await sendMessageWithDelay(
-                targetChatId,
-                `Хорошо, спасибо за доверие. Пару моментов для актуализации информации. Стоимость квартиры ${data.objectInfo[0].price} руб (с коммуналкой, но счетчики отдельно), верно?`
-            );
-            dialogState.set(targetChatId, MESSAGE_TYPES.PRICE_CONFIRMATION);
-            return;
-        }
-        
-        await sendMessageWithDelay(targetChatId, 'Я вас понял, извините за беспокойство.');
+        console.log(`[${new Date().toLocaleTimeString()}] Неизвестное состояние для ${targetChatId}, пропускаем обработку`);
+        // Не делаем ничего, чтобы не повторять вопросы после завершения диалога
     }
 
     // Проверка типа уведомления
@@ -146,39 +170,41 @@ export async function startBot(chatId, objectId) {
     // Валидация входящего сообщения
     function validateMessage(notification) {
         if (!isIncomingMessage(notification)) {
+            console.log(`[${new Date().toLocaleTimeString()}] 🔍 Не входящее сообщение (typeWebhook: ${notification.body.typeWebhook})`);
             return { valid: false };
         }
 
         const messageData = notification.body.messageData;
         
         if (isOutgoingMessage(messageData)) {
-            console.log(`[${new Date().toLocaleTimeString()}] Пропуск исходящего сообщения от бота`);
+            console.log(`[${new Date().toLocaleTimeString()}] ⬅️ Пропуск исходящего сообщения от бота`);
             return { valid: false };
         }
 
         const responseText = extractMessageText(messageData);
         if (!responseText) {
-            console.log(`[${new Date().toLocaleTimeString()}] Получено сообщение без текста (возможно, медиа)`);
+            console.log(`[${new Date().toLocaleTimeString()}] 📎 Получено сообщение без текста (возможно, медиа)`);
             return { valid: false };
         }
 
         const msgChatId = extractChatId(notification);
         if (!msgChatId) {
-            console.error(`[${new Date().toLocaleTimeString()}] Не удалось определить chatId`);
+            console.error(`[${new Date().toLocaleTimeString()}] ❌ Не удалось определить chatId`);
             return { valid: false };
         }
 
         if (isBotMessage(msgChatId)) {
-            console.log(`[${new Date().toLocaleTimeString()}] Пропуск сообщения от самого бота`);
+            console.log(`[${new Date().toLocaleTimeString()}] 🤖 Пропуск сообщения от самого бота`);
             return { valid: false };
         }
 
         // Фильтруем сообщения только от указанного chatId
         if (msgChatId !== chatId) {
-            console.log(`[${new Date().toLocaleTimeString()}] Пропуск сообщения от ${msgChatId} (ожидаем ${chatId})`);
+            console.log(`[${new Date().toLocaleTimeString()}] 🚫 Пропуск сообщения от ${msgChatId} (ожидаем ${chatId})`);
             return { valid: false };
         }
 
+        console.log(`[${new Date().toLocaleTimeString()}] ✅ Сообщение прошло валидацию`);
         return { valid: true, chatId: msgChatId, responseText };
     }
 
@@ -191,6 +217,7 @@ export async function startBot(chatId, objectId) {
     // Маршрутизатор обработки диалога
     async function routeDialogResponse(targetChatId, isPositive) {
         const messageType = dialogState.get(targetChatId);
+        console.log(`[${new Date().toLocaleTimeString()}] 🔀 routeDialogResponse: текущее состояние=${messageType}, isPositive=${isPositive}`);
         const handler = dialogHandlers[messageType] || handleUnknownStateResponse;
         await handler(targetChatId, isPositive);
     }
@@ -202,10 +229,32 @@ export async function startBot(chatId, objectId) {
             if (!validation.valid) return;
 
             const { chatId: msgChatId, responseText } = validation;
-            console.log(`[${new Date().toLocaleTimeString()}] Получено сообщение от ${msgChatId}: ${responseText}`);
+            
+            // Создаем уникальный ID сообщения для дедупликации
+            const messageId = `${msgChatId}_${responseText}_${Date.now()}`;
+            const messageHash = `${msgChatId}_${responseText}`;
+            
+            // Проверяем, не обрабатывали ли мы уже это сообщение недавно (в течение последних 5 секунд)
+            if (processedMessages.has(messageHash)) {
+                console.log(`[${new Date().toLocaleTimeString()}] ⚠️ Дубликат сообщения обнаружен, пропускаем`);
+                return;
+            }
+            
+            // Добавляем в список обработанных
+            processedMessages.add(messageHash);
+            // Удаляем через 5 секунд (чтобы не блокировать легитимные повторы)
+            setTimeout(() => processedMessages.delete(messageHash), 5000);
+            
+            console.log(`[${new Date().toLocaleTimeString()}] 📩 Получено сообщение от ${msgChatId}: ${responseText}`);
 
             if (!dialogState.has(msgChatId) && !initializedChats.has(msgChatId)) {
                 await initializeDialog(msgChatId);
+                return;
+            }
+
+            // Проверяем, не завершен ли уже диалог
+            if (dialogState.get(msgChatId) === MESSAGE_TYPES.COMPLETED) {
+                console.log(`[${new Date().toLocaleTimeString()}] Диалог с ${msgChatId} уже завершен, пропускаем сообщение`);
                 return;
             }
 
@@ -270,11 +319,15 @@ export async function startBot(chatId, objectId) {
             const notification = await client.receiveNotification(30);
             
             if (notification) {
+                console.log(`[${new Date().toLocaleTimeString()}] 📬 Получено уведомление типа: ${notification.body.typeWebhook}`);
                 await handleIncomingMessage(notification);
                 await client.deleteNotification(notification.receiptId);
+            } else {
+                const currentState = dialogState.get(chatId) || 'не инициализирован';
+                console.log(`[${new Date().toLocaleTimeString()}] ⏳ Нет новых уведомлений (текущее состояние: ${currentState})`);
             }
         } catch (error) {
-            console.error(`[${new Date().toLocaleTimeString()}] Ошибка в основном цикле:`, error);
+            console.error(`[${new Date().toLocaleTimeString()}] ❌ Ошибка в основном цикле:`, error);
             await delay(5000);
         }
     }
