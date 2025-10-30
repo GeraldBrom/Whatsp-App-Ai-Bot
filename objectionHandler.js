@@ -1,9 +1,8 @@
 import 'dotenv/config';
 import OpenAI from 'openai';
+import { getOpenAIConfig } from './proxyConfig.js';
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY || ''
-});
+const openai = new OpenAI(getOpenAIConfig(process.env.OPENAI_API_KEY));
 
 /**
  * Определяет, является ли сообщение возражением
@@ -56,6 +55,9 @@ export async function isObjection(message) {
         
     } catch (error) {
         console.error('❌ Ошибка при определении возражения:', error.message);
+        if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+            console.error('🔌 Проблема с подключением. Проверьте доступность прокси-сервера или отключите прокси (USE_PROXY=false)');
+        }
         return false;
     }
 }

@@ -1,5 +1,12 @@
+import 'dotenv/config';
+import OpenAI from 'openai';
+import { getOpenAIConfig } from './proxyConfig.js';
+
+// Создаем отдельный OpenAI клиент с прокси для анализа ответов
+const openaiClient = new OpenAI(getOpenAIConfig(process.env.OPENAI_API_KEY));
+
 // Анализ ответа клиента на положительный/отрицательный/нейтральный
-export async function analyzeResponse(responseText, openaiClient) {
+export async function analyzeResponse(responseText) {
     try {
         const completion = await openaiClient.chat.completions.create({
             model: "gpt-4o",
@@ -53,7 +60,10 @@ export async function analyzeResponse(responseText, openaiClient) {
         // По умолчанию считаем нейтральным, если непонятно
         return null;
     } catch (error) {
-        console.error('Ошибка при анализе ответа через GPT:', error);
+        console.error('❌ Ошибка при анализе ответа через GPT:', error.message);
+        if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+            console.error('🔌 Проблема с подключением. Проверьте доступность прокси-сервера или отключите прокси (USE_PROXY=false)');
+        }
         return null;
     }
 }

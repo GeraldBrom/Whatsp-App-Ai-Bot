@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import { GreenApiClient } from '@green-api/whatsapp-api-client-js-v2';
-import { WhatsappGptBot } from '@green-api/whatsapp-chatgpt';
 import databaseConnect from './databaseConnect.js';
 import { cleanOwnerName } from './formatterName.js';
 import { analyzeResponse } from './responseAnalyzer.js';
@@ -23,15 +22,7 @@ export async function startBot(chatId, objectId) {
 
     console.log(`[${new Date().toLocaleTimeString()}] 🚀 Запуск бота для chatId: ${chatId}, objectId: ${objectId}`);
 
-    // Инициализация бота
-    const bot = new WhatsappGptBot({
-        idInstance: process.env.ID_INSTANCE,
-        apiTokenInstance: process.env.API_TOKEN_INSTANCE,
-        openaiApiKey: process.env.OPENAI_API_KEY,
-        model: "gpt-4o"
-    });
-
-    // Инициализация клиента GreenApi
+    // Инициализация клиента GreenApi для WhatsApp
     const client = new GreenApiClient({
         idInstance: process.env.ID_INSTANCE,
         apiTokenInstance: process.env.API_TOKEN_INSTANCE
@@ -234,8 +225,7 @@ export async function startBot(chatId, objectId) {
                 }
             }
 
-            const openai = bot.getOpenAI();
-            const isPositive = await analyzeResponse(responseText, openai);
+            const isPositive = await analyzeResponse(responseText);
             
             if (isPositive === null) {
                 console.log(`[${new Date().toLocaleTimeString()}] Нейтральное сообщение проигнорировано, ожидаем содержательный ответ`);
@@ -272,7 +262,7 @@ export async function startBot(chatId, objectId) {
     await initializeDialog(chatId);
 
     isRunning = true;
-    botInstance = { client, bot, dialogState, initializedChats };
+    botInstance = { client, dialogState, initializedChats };
 
     // Основной цикл обработки сообщений
     while (isRunning) {
