@@ -5,7 +5,7 @@ module.exports = {
   apps: [{
     name: 'whatsappbot',
     script: 'server.js',
-    cwd: '/www/WhatsAppBot',
+    cwd: '/var/www/u2817882/data/capitalwabot.com',
     
     // Режим работы
     instances: 1,
@@ -24,8 +24,8 @@ module.exports = {
     min_uptime: '10s',
     
     // Логи
-    error_file: '/var/log/pm2/whatsappbot-error.log',
-    out_file: '/var/log/pm2/whatsappbot-out.log',
+    error_file: '/var/www/u2817882/data/capitalwabot.com/logs/pm2-error.log',
+    out_file: '/var/www/u2817882/data/capitalwabot.com/logs/pm2-out.log',
     log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     merge_logs: true,
     
