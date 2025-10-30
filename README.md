@@ -184,10 +184,10 @@ USE_PROXY=false
 
 ```bash
 # Проверка логов
-pm2 logs whatsappbot
+npx pm2 logs whatsappbot
 
 # Перезапуск
-pm2 restart whatsappbot
+npx pm2 restart whatsappbot
 ```
 
 ### Проблемы с WhatsApp

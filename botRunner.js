@@ -72,6 +72,55 @@ export async function startBot(chatId, objectId) {
         COMPLETED: 'completed'
     };
 
+    // Утилиты анализа текста
+    function sanitizeBotText(text) {
+        if (!text) return text;
+        // Удаляем квадратные/китайские ссылочные метки вида [1],  и т.п.
+        return text
+            .replace(/\[[^\]]*\]/g, '')
+            .replace(/【[^】]*】/g, '')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+    }
+
+    function containsNegativeIntent(text) {
+        const t = (text || '').toLowerCase();
+        const phrases = [
+            'я против', 'не давал', 'не разреш', 'не надо', 'не хочу', 'стоп', 'нет', 'не соглас',
+            'прекратите', 'остановите', 'не пишите', 'не беспокойте'
+        ];
+        return phrases.some(p => t.includes(p));
+    }
+
+    function containsPauseIntent(text) {
+        const t = (text || '').toLowerCase();
+        const phrases = ['погодите', 'подождите', 'минутку', 'секунду', 'сейчас не'];
+        return phrases.some(p => t.includes(p));
+    }
+
+    function extractPriceFromText(text) {
+        if (!text) return null;
+        // Извлекаем число (поддержка форматов: 95,000; 95000; 95 000; 95k/95к)
+        const normalized = text
+            .toLowerCase()
+            .replace(/[\s\u00A0]/g, ' ')
+            .replace(/руб\.?/g, '')
+            .trim();
+
+        const kMatch = normalized.match(/(\d+[\s.,]?\d*)\s*[kк]/);
+        if (kMatch) {
+            const num = Number(kMatch[1].replace(/[^\d]/g, ''));
+            if (!Number.isNaN(num)) return String(num * 1000);
+        }
+
+        const numMatch = normalized.match(/\d{1,3}([\s.,]?\d{3})+|\d+/);
+        if (numMatch) {
+            const digits = numMatch[0].replace(/[^\d]/g, '');
+            if (digits.length > 0) return digits;
+        }
+        return null;
+    }
+
     // Функция отправки сообщения с задержкой
     async function sendMessageWithDelay(targetChatId, message, delayMs = 1500) {
         // Проверяем, не отправляли ли мы уже это сообщение недавно
@@ -160,10 +209,26 @@ export async function startBot(chatId, objectId) {
     // Обработчик получения новой цены от клиента
     async function handlePriceUpdateResponse(targetChatId, messageText) {
         console.log(`[${new Date().toLocaleTimeString()}] 🔄 handlePriceUpdateResponse: получена новая цена от клиента`);
-        
+
+        // Если это явно отказ/стоп — корректно завершаем
+        if (containsNegativeIntent(messageText)) {
+            await sendMessageWithDelay(targetChatId, 'Понял вас. Спасибо за ваше время, если что-то изменится — будем рады сотрудничеству.');
+            dialogState.set(targetChatId, MESSAGE_TYPES.COMPLETED);
+            console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: COMPLETED (отказ вместо цены)`);
+            return;
+        }
+
+        const priceDigits = extractPriceFromText(messageText);
+        if (!priceDigits) {
+            await sendMessageWithDelay(targetChatId, 'Понял вас. Подскажите, пожалуйста, актуальную цену числом (например, 95000 руб)?');
+            // Остаемся в PRICE_UPDATE, ждем корректный ввод
+            return;
+        }
+
+        const formatted = new Intl.NumberFormat('ru-RU').format(Number(priceDigits));
         await sendMessageWithDelay(
             targetChatId,
-            `Понял вас, цена ${messageText}. На всякий случай проговариваю, что наша комиссия по факту заселения жильцов оплачиваемая вами ${data.objectInfo[0].commission_client}% (как и при прошлом сотрудничестве). Тогда мы запускаем в рекламу, как будут первые звонки сразу свяжемся с вами.`
+            `Понял вас, цена ${formatted} руб. На всякий случай проговариваю, что наша комиссия по факту заселения жильцов оплачиваемая вами ${data.objectInfo[0].commission_client}% (как и при прошлом сотрудничестве). Тогда мы запускаем в рекламу, как будут первые звонки сразу свяжемся с вами.`
         );
         dialogState.set(targetChatId, MESSAGE_TYPES.COMMISSION_INFO);
         console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: COMMISSION_INFO`);
@@ -324,19 +389,34 @@ export async function startBot(chatId, objectId) {
                 return;
             }
 
+            // Жесткие интенты до любых моделей
+            if (containsNegativeIntent(responseText)) {
+                await sendMessageWithDelay(msgChatId, 'Понял вас. Спасибо за ваше время, если что-то изменится — будем рады сотрудничеству.');
+                dialogState.set(msgChatId, MESSAGE_TYPES.COMPLETED);
+                console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: COMPLETED (явный отказ)`);
+                return;
+            }
+
+            if (containsPauseIntent(responseText)) {
+                await sendMessageWithDelay(msgChatId, 'Хорошо, жду вашего подтверждения. Напишите, когда можно продолжить.');
+                // Не меняем состояние
+                return;
+            }
+
             // Проверяем, есть ли Vector Store для обработки возражений
             if (process.env.VECTOR_STORE_ID) {
-                // Пытаемся обработать сообщение как возражение через RAG
-                const objectionResponse = await processMessage(responseText, process.env.VECTOR_STORE_ID);
-                
-                if (objectionResponse) {
-                    // Если это возражение и мы получили ответ из базы знаний
-                    console.log(`[${new Date().toLocaleTimeString()}] 🎯 Обработано возражение через RAG`);
-                    await sendMessageWithDelay(msgChatId, objectionResponse);
-                    
-                    // Продолжаем основной диалог после ответа на возражение
-                    // Не меняем состояние, просто отправляем информацию
-                    return;
+                const currentState = dialogState.get(msgChatId);
+                // Не используем RAG в PRICE_UPDATE, и не при паузе/отказе
+                if (currentState !== MESSAGE_TYPES.PRICE_UPDATE) {
+                    const objectionResponse = await processMessage(responseText, process.env.VECTOR_STORE_ID);
+                    if (objectionResponse) {
+                        const safeText = sanitizeBotText(objectionResponse);
+                        console.log(`[${new Date().toLocaleTimeString()}] 🎯 Обработано возражение через RAG`);
+                        if (safeText) {
+                            await sendMessageWithDelay(msgChatId, safeText);
+                            return; // не меняем состояние
+                        }
+                    }
                 }
             }
 
