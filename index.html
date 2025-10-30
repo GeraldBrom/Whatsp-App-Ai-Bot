@@ -42,6 +42,12 @@
             text-align: center;
             margin-bottom: 30px;
             font-size: 14px;
+            font-weight: 600;
+            padding: 10px 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border: 2px solid #e0e0e0;
+            transition: all 0.3s ease;
         }
 
         .form-group {
@@ -166,12 +172,122 @@
             margin-bottom: 20px;
             font-size: 50px;
         }
+
+        .bots-section {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #f0f0f0;
+        }
+
+        .bots-title {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .bots-count {
+            font-size: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .bots-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .bot-card {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .bot-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+        }
+
+        .bot-info {
+            flex: 1;
+        }
+
+        .bot-chat-id {
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .bot-details {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .bot-status {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-right: 8px;
+        }
+
+        .bot-status.running {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .bot-status.stopped {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .bot-stop-btn {
+            background: #f56565;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .bot-stop-btn:hover {
+            background: #e53e3e;
+            transform: translateY(-1px);
+        }
+
+        .bot-stop-btn:active {
+            transform: translateY(0);
+        }
+
+        .no-bots {
+            text-align: center;
+            color: #999;
+            padding: 20px;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="logo">🤖</div>
         <h1>WhatsApp Bot</h1>
+        <div class="subtitle" id="subtitle">Нет активных ботов</div>
 
         <form id="botForm">
             <div class="form-group">
@@ -203,21 +319,31 @@
             </button>
         </form>
 
-        <button type="button" class="btn btn-stop" id="stopBtn">
-            🛑 Остановить бота (принудительно)
+        <button type="button" class="btn btn-stop" id="stopAllBtn">
+            🛑 Остановить всех ботов
         </button>
 
         <div id="status" class="status"></div>
+
+        <!-- Список активных ботов -->
+        <div id="botsSection" class="bots-section" style="display: none;">
+            <h2 class="bots-title">Активные боты <span id="botsCount" class="bots-count">0/5</span></h2>
+            <div id="botsList" class="bots-list"></div>
+        </div>
     </div>
 
     <script>
         const form = document.getElementById('botForm');
         const statusDiv = document.getElementById('status');
         const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
+        const stopAllBtn = document.getElementById('stopAllBtn');
         const chatIdInput = document.getElementById('chatId');
         const phonePreview = document.getElementById('phonePreview');
         const previewText = document.getElementById('previewText');
+        const botsSection = document.getElementById('botsSection');
+        const botsList = document.getElementById('botsList');
+        const botsCount = document.getElementById('botsCount');
+        const subtitle = document.getElementById('subtitle');
 
         // Обновление предпросмотра при вводе номера
         chatIdInput.addEventListener('input', (e) => {
@@ -272,6 +398,7 @@
 
                 if (response.ok) {
                     showStatus(`✅ Бот запущен для номера ${chatId}`, 'success');
+                    updateBotsList();
                 } else {
                     showStatus('❌ ' + (data.error || 'Ошибка запуска бота'), 'error');
                 }
@@ -283,17 +410,17 @@
             }
         });
 
-        // Обработчик кнопки остановки
-        stopBtn.addEventListener('click', async () => {
-            if (!confirm('Вы уверены, что хотите остановить бота?')) {
+        // Обработчик кнопки остановки всех ботов
+        stopAllBtn.addEventListener('click', async () => {
+            if (!confirm('Вы уверены, что хотите остановить всех ботов?')) {
                 return;
             }
 
-            stopBtn.disabled = true;
-            stopBtn.textContent = '⏳ Остановка...';
+            stopAllBtn.disabled = true;
+            stopAllBtn.textContent = '⏳ Остановка...';
 
             try {
-                const response = await fetch('/api/stop-bot', {
+                const response = await fetch('/api/stop-all-bots', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -303,28 +430,136 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    showStatus('✅ Бот успешно остановлен', 'success');
+                    showStatus(`✅ ${data.message}`, 'success');
+                    updateBotsList();
                 } else {
-                    showStatus('❌ ' + (data.error || 'Ошибка остановки бота'), 'error');
+                    showStatus('❌ ' + (data.error || 'Ошибка остановки ботов'), 'error');
                 }
             } catch (error) {
                 showStatus('❌ Ошибка соединения с сервером: ' + error.message, 'error');
             } finally {
-                stopBtn.disabled = false;
-                stopBtn.textContent = '🛑 Остановить бота (принудительно)';
+                stopAllBtn.disabled = false;
+                stopAllBtn.textContent = '🛑 Остановить всех ботов';
             }
         });
+
+        // Функция остановки конкретного бота
+        async function stopBot(chatId) {
+            try {
+                const response = await fetch('/api/stop-bot', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ chatId })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showStatus(`✅ Бот для ${chatId} остановлен`, 'success');
+                    updateBotsList();
+                } else {
+                    showStatus('❌ ' + (data.error || 'Ошибка остановки бота'), 'error');
+                }
+            } catch (error) {
+                showStatus('❌ Ошибка: ' + error.message, 'error');
+            }
+        }
+
+        // Функция обновления списка ботов
+        async function updateBotsList() {
+            try {
+                const response = await fetch('/api/bots');
+                const data = await response.json();
+
+                if (response.ok) {
+                    const bots = data.bots;
+                    botsCount.textContent = `${bots.length}/${data.maxBots}`;
+
+                    // Обновляем subtitle
+                    if (bots.length === 0) {
+                        subtitle.textContent = 'Нет активных ботов';
+                        subtitle.style.color = '#999';
+                        subtitle.style.background = '#f8f9fa';
+                        subtitle.style.borderColor = '#e0e0e0';
+                        botsSection.style.display = 'none';
+                        return;
+                    } else if (bots.length === 1) {
+                        const bot = bots[0];
+                        const phone = bot.chatId.replace('@c.us', '');
+                        subtitle.textContent = `🟢 Работает 1 бот: +${phone}`;
+                        subtitle.style.color = '#155724';
+                        subtitle.style.background = '#d4edda';
+                        subtitle.style.borderColor = '#c3e6cb';
+                    } else {
+                        const phones = bots.map(b => '+' + b.chatId.replace('@c.us', '')).join(', ');
+                        subtitle.textContent = `🟢 Работает ${bots.length} бот(а): ${phones}`;
+                        subtitle.style.color = '#155724';
+                        subtitle.style.background = '#d4edda';
+                        subtitle.style.borderColor = '#c3e6cb';
+                    }
+
+                    botsSection.style.display = 'block';
+                    botsList.innerHTML = '';
+
+                    bots.forEach(bot => {
+                        const card = document.createElement('div');
+                        card.className = 'bot-card';
+
+                        const statusClass = bot.isRunning ? 'running' : 'stopped';
+                        const statusText = bot.isRunning ? '🟢 Работает' : '🔴 Остановлен';
+                        const startTime = new Date(bot.startTime).toLocaleTimeString('ru-RU');
+                        const stateText = getStateText(bot.currentState);
+
+                        card.innerHTML = `
+                            <div class="bot-info">
+                                <div class="bot-chat-id">📱 ${bot.chatId}</div>
+                                <div class="bot-details">
+                                    <span class="bot-status ${statusClass}">${statusText}</span>
+                                    Object ID: ${bot.objectId} | Статус: ${stateText} | Запущен: ${startTime}
+                                </div>
+                            </div>
+                            <button class="bot-stop-btn" onclick="stopBot('${bot.chatId}')">
+                                ⏹️ Остановить
+                            </button>
+                        `;
+
+                        botsList.appendChild(card);
+                    });
+                }
+            } catch (error) {
+                console.error('Ошибка обновления списка ботов:', error);
+            }
+        }
+
+        // Функция получения читаемого текста статуса
+        function getStateText(state) {
+            const states = {
+                'initial_question': 'Начальный вопрос',
+                'price_confirmation': 'Подтверждение цены',
+                'price_update': 'Обновление цены',
+                'commission_info': 'Информация о комиссии',
+                'completed': 'Завершено',
+                'not_initialized': 'Не инициализирован'
+            };
+            return states[state] || state;
+        }
+
+        // Автоматическое обновление списка каждые 3 секунды
+        setInterval(updateBotsList, 3000);
+        
+        // Первоначальное обновление списка
+        updateBotsList();
 
         function showStatus(message, type) {
             statusDiv.textContent = message;
             statusDiv.className = 'status ' + type;
             
-            // Автоматически скрываем через 5 секунд для success
-            if (type === 'success') {
-                setTimeout(() => {
-                    statusDiv.style.display = 'none';
-                }, 5000);
-            }
+            // Автоматически скрываем через 10 секунд
+            setTimeout(() => {
+                statusDiv.className = 'status';
+            }, 10000);
         }
     </script>
 </body>

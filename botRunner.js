@@ -7,9 +7,11 @@ import { cleanOwnerName } from './formatterName.js';
 import { analyzeResponse } from './responseAnalyzer.js';
 import { processMessage } from './objectionHandler.js';
 
-// Глобальная переменная для отслеживания состояния бота
-let botInstance = null;
-let isRunning = false;
+// Хранилище активных ботов (ключ - chatId)
+const activeBots = new Map();
+
+// Максимальное количество одновременно работающих ботов
+const MAX_BOTS = 5;
 
 // Функция задержки для имитации естественного общения
 function delay(ms) {
@@ -18,8 +20,14 @@ function delay(ms) {
 
 // Основная функция запуска бота
 export async function startBot(chatId, objectId) {
-    if (isRunning) {
-        throw new Error('Бот уже запущен');
+    // Проверяем, не запущен ли уже бот для этого chatId
+    if (activeBots.has(chatId)) {
+        throw new Error(`Бот для ${chatId} уже запущен`);
+    }
+
+    // Проверяем лимит активных ботов
+    if (activeBots.size >= MAX_BOTS) {
+        throw new Error(`Достигнут лимит активных ботов (${MAX_BOTS}). Остановите один из ботов перед запуском нового.`);
     }
 
     console.log(`[${new Date().toLocaleTimeString()}] 🚀 Запуск бота для chatId: ${chatId}, objectId: ${objectId}`);
@@ -352,11 +360,22 @@ export async function startBot(chatId, objectId) {
     // Инициализируем диалог с указанным chatId
     await initializeDialog(chatId);
 
-    isRunning = true;
-    botInstance = { client, dialogState, initializedChats };
+    // Создаем объект бота с флагом isRunning
+    const botControl = {
+        isRunning: true,
+        chatId,
+        objectId,
+        startTime: new Date(),
+        client,
+        dialogState,
+        initializedChats
+    };
+    
+    // Сохраняем бот в активные
+    activeBots.set(chatId, botControl);
 
     // Основной цикл обработки сообщений через lastIncomingMessages
-    while (isRunning) {
+    while (botControl.isRunning) {
         try {
             // Получаем последние входящие сообщения за последние 60 секунд
             const response = await fetch(`${apiUrl}?minutes=1`);
@@ -408,25 +427,61 @@ export async function startBot(chatId, objectId) {
         }
     }
 
-    console.log(`[${new Date().toLocaleTimeString()}] ⏹️ Бот остановлен`);
+    console.log(`[${new Date().toLocaleTimeString()}] ⏹️ Бот для ${chatId} остановлен`);
+    
+    // Удаляем бота из активных
+    activeBots.delete(chatId);
 }
 
-// Функция остановки бота
-export function stopBot() {
-    if (isRunning) {
-        isRunning = false;
-        botInstance = null;
-        console.log(`[${new Date().toLocaleTimeString()}] Запрос на остановку бота отправлен`);
+// Функция остановки конкретного бота
+export function stopBot(chatId) {
+    if (activeBots.has(chatId)) {
+        const bot = activeBots.get(chatId);
+        bot.isRunning = false;
+        console.log(`[${new Date().toLocaleTimeString()}] Запрос на остановку бота для ${chatId} отправлен`);
         return true;
     }
     return false;
 }
 
-// Функция проверки состояния бота
-export function getBotStatus() {
-    return {
-        isRunning,
-        hasInstance: botInstance !== null
-    };
+// Функция остановки всех ботов
+export function stopAllBots() {
+    let stopped = 0;
+    for (const [chatId, bot] of activeBots.entries()) {
+        bot.isRunning = false;
+        stopped++;
+    }
+    console.log(`[${new Date().toLocaleTimeString()}] Запрос на остановку ${stopped} бот(ов) отправлен`);
+    return stopped;
+}
+
+// Функция получения списка всех активных ботов
+export function getAllBots() {
+    const bots = [];
+    for (const [chatId, bot] of activeBots.entries()) {
+        bots.push({
+            chatId: chatId,
+            objectId: bot.objectId,
+            startTime: bot.startTime,
+            isRunning: bot.isRunning,
+            currentState: bot.dialogState.get(chatId) || 'not_initialized'
+        });
+    }
+    return bots;
+}
+
+// Функция проверки состояния конкретного бота
+export function getBotStatus(chatId) {
+    if (activeBots.has(chatId)) {
+        const bot = activeBots.get(chatId);
+        return {
+            isRunning: bot.isRunning,
+            chatId: bot.chatId,
+            objectId: bot.objectId,
+            startTime: bot.startTime,
+            currentState: bot.dialogState.get(chatId) || 'not_initialized'
+        };
+    }
+    return null;
 }
 

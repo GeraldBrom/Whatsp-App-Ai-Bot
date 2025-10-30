@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { startBot, stopBot, getBotStatus } from './botRunner.js';
+import { startBot, stopBot, stopAllBots, getBotStatus, getAllBots } from './botRunner.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,14 +31,6 @@ app.post('/api/start-bot', async (req, res) => {
             });
         }
 
-        // Проверяем, не запущен ли бот уже
-        const status = getBotStatus();
-        if (status.isRunning) {
-            return res.status(409).json({
-                error: 'Бот уже запущен. Остановите текущую сессию перед запуском новой.'
-            });
-        }
-
         // Запускаем бота в фоновом режиме
         console.log(`\n${'='.repeat(50)}`);
         console.log(`[${new Date().toLocaleTimeString()}] 🚀 Получен запрос на запуск бота`);
@@ -63,19 +55,27 @@ app.post('/api/start-bot', async (req, res) => {
     }
 });
 
-// API endpoint для остановки бота
+// API endpoint для остановки конкретного бота
 app.post('/api/stop-bot', (req, res) => {
     try {
-        const stopped = stopBot();
+        const { chatId } = req.body;
+        
+        if (!chatId) {
+            return res.status(400).json({
+                error: 'Необходимо указать chatId'
+            });
+        }
+        
+        const stopped = stopBot(chatId);
         
         if (stopped) {
             res.json({
                 success: true,
-                message: 'Бот успешно остановлен'
+                message: `Бот для ${chatId} успешно остановлен`
             });
         } else {
             res.status(404).json({
-                error: 'Бот не был запущен'
+                error: `Бот для ${chatId} не был запущен`
             });
         }
     } catch (error) {
@@ -86,10 +86,46 @@ app.post('/api/stop-bot', (req, res) => {
     }
 });
 
-// API endpoint для проверки статуса бота
-app.get('/api/status', (req, res) => {
-    const status = getBotStatus();
-    res.json(status);
+// API endpoint для остановки всех ботов
+app.post('/api/stop-all-bots', (req, res) => {
+    try {
+        const stopped = stopAllBots();
+        
+        res.json({
+            success: true,
+            message: `Остановлено ботов: ${stopped}`
+        });
+    } catch (error) {
+        console.error(`[${new Date().toLocaleTimeString()}] ❌ Ошибка при остановке ботов:`, error);
+        res.status(500).json({
+            error: 'Ошибка при остановке ботов: ' + error.message
+        });
+    }
+});
+
+// API endpoint для получения списка всех ботов
+app.get('/api/bots', (req, res) => {
+    const bots = getAllBots();
+    res.json({
+        success: true,
+        count: bots.length,
+        maxBots: 5,
+        bots: bots
+    });
+});
+
+// API endpoint для проверки статуса конкретного бота
+app.get('/api/status/:chatId', (req, res) => {
+    const { chatId } = req.params;
+    const status = getBotStatus(chatId);
+    
+    if (status) {
+        res.json(status);
+    } else {
+        res.status(404).json({
+            error: `Бот для ${chatId} не найден`
+        });
+    }
 });
 
 // Обработка ошибок
@@ -112,13 +148,13 @@ app.listen(PORT, () => {
 // Обработка завершения процесса
 process.on('SIGINT', () => {
     console.log('\n\n🛑 Получен сигнал завершения...');
-    stopBot();
+    stopAllBots();
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
     console.log('\n\n🛑 Получен сигнал завершения...');
-    stopBot();
+    stopAllBots();
     process.exit(0);
 });
 
