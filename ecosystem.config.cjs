@@ -5,7 +5,7 @@ module.exports = {
   apps: [{
     name: 'whatsappbot',
     script: './server.js',
-    // cwd будет текущая директория откуда запускаете PM2
+    cwd: '/www/bot.capitalmars.com'
     
     // Режим работы
     instances: 1,
@@ -24,8 +24,8 @@ module.exports = {
     min_uptime: '10s',
     
     // Логи
-    error_file: './logs/pm2-error.log',
-    out_file: './logs/pm2-out.log',
+    error_file: '/www/bot.capitalmars.com/logs/pm2-error.log',
+    out_file: '/www/bot.capitalmars.com/logs/pm2-out.log',
     log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     merge_logs: true,
     
