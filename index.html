@@ -105,6 +105,15 @@
             transform: none;
         }
 
+        .btn-stop {
+            background: linear-gradient(135deg, #f56565 0%, #c53030 100%);
+        }
+
+        .btn-stop:hover {
+            background: linear-gradient(135deg, #fc8181 0%, #e53e3e 100%);
+            box-shadow: 0 10px 20px rgba(245, 101, 101, 0.3);
+        }
+
         .status {
             margin-top: 20px;
             padding: 15px;
@@ -194,6 +203,10 @@
             </button>
         </form>
 
+        <button type="button" class="btn btn-stop" id="stopBtn">
+            🛑 Остановить бота (принудительно)
+        </button>
+
         <div id="status" class="status"></div>
     </div>
 
@@ -201,6 +214,7 @@
         const form = document.getElementById('botForm');
         const statusDiv = document.getElementById('status');
         const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
         const chatIdInput = document.getElementById('chatId');
         const phonePreview = document.getElementById('phonePreview');
         const previewText = document.getElementById('previewText');
@@ -266,6 +280,38 @@
             } finally {
                 startBtn.disabled = false;
                 startBtn.textContent = '🚀 Запустить бота';
+            }
+        });
+
+        // Обработчик кнопки остановки
+        stopBtn.addEventListener('click', async () => {
+            if (!confirm('Вы уверены, что хотите остановить бота?')) {
+                return;
+            }
+
+            stopBtn.disabled = true;
+            stopBtn.textContent = '⏳ Остановка...';
+
+            try {
+                const response = await fetch('/api/stop-bot', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showStatus('✅ Бот успешно остановлен', 'success');
+                } else {
+                    showStatus('❌ ' + (data.error || 'Ошибка остановки бота'), 'error');
+                }
+            } catch (error) {
+                showStatus('❌ Ошибка соединения с сервером: ' + error.message, 'error');
+            } finally {
+                stopBtn.disabled = false;
+                stopBtn.textContent = '🛑 Остановить бота (принудительно)';
             }
         });
 
