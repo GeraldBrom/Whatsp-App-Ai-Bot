@@ -87,7 +87,11 @@ export async function startBot(chatId, objectId) {
         console.log(`[${new Date().toLocaleTimeString()}] ✨ После cleanOwnerName: "${cleanedName}"`);
         
         await sendMessageWithDelay(targetChatId, `${cleanedName}, добрый день!`, 0);
-        await sendMessageWithDelay(targetChatId, `Я — ИИ (искусственный интеллект) компании Capital Mars. Мы уже дважды сдавали вашу квартиру на ${data.objectInfo[0].address}. ${cleanedName}, что она снова сдается — верно? Если да, можем подключиться к сдаче вашей квартиры?`, 2000);
+        if(data.objectCount = 0 || null)
+        {
+            await sendMessageWithDelay(targetChatId, `Я — ИИ (искусственный интеллект) компании Capital Mars. Мы работали с вами ${data.formattedAddDate}. Видим, что она снова сдается — верно? Если да, можем подключиться к сдаче вашей квартиры? Мы с вами работали ${data.formattedAddDate}`, 2000);
+        }
+        await sendMessageWithDelay(targetChatId, `Я — ИИ (искусственный интеллект) компании Capital Mars. Мы уже ${data.objectCount} раза сдавали вашу квартиру на ${data.objectInfo[0].address}. ${cleanedName}, что она снова сдается — верно? Если да, можем подключиться к сдаче вашей квартиры?`, 2000);
         
         dialogState.set(targetChatId, MESSAGE_TYPES.INITIAL_QUESTION);
         console.log(`[${new Date().toLocaleTimeString()}] 🔄 Состояние установлено: INITIAL_QUESTION`);
