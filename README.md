@@ -246,11 +246,6 @@ pm2 restart whatsappbot
 
 Этот проект является частной разработкой.
 
-## 📞 Контакты
-
-- **Домен**: https://capitalwabot.com
-- **GitHub**: https://github.com/City-Mars/bot
-
 ## 🙏 Благодарности
 
 - [Green API](https://green-api.com/) - WhatsApp Business API (для отправки/получения сообщений)
