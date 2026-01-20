@@ -234,27 +234,4 @@ npm install
 pm2 restart whatsappbot
 ```
 
-## 🤝 Вклад в проект
-
-1. Fork проекта
-2. Создайте feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit изменений (`git commit -m 'Add some AmazingFeature'`)
-4. Push в branch (`git push origin feature/AmazingFeature`)
-5. Откройте Pull Request
-
-## 📄 Лицензия
-
-Этот проект является частной разработкой.
-
-## 🙏 Благодарности
-
-- [Green API](https://green-api.com/) - WhatsApp Business API (для отправки/получения сообщений)
-- [OpenAI](https://openai.com/) - GPT-4o API (прямое подключение)
-- [Express](https://expressjs.com/) - Web framework
-- [PM2](https://pm2.keymetrics.io/) - Process manager
-- [socks-proxy-agent](https://github.com/TooTallNate/node-socks-proxy-agent) - SOCKS5 Proxy для обхода региональных ограничений
-
----
-
-**Разработано с ❤️ для автоматизации работы с клиентами**
 
